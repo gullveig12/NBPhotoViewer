@@ -1,0 +1,5 @@
+libwebp 1.6.0, decoder-only build
+Official download page: https://developers.google.com/speed/webp/download
+Archive: https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz
+SHA256: e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564
+Sources are unmodified. See libwebp-1.6.0/COPYING and PATENTS.

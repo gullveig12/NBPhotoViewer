@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NEFViewer",
+  "version": "0.5.5",
+  "identifier": "local.nefviewer.app",
+  "build": {
+    "beforeDevCommand": "npm.cmd run dev",
+    "beforeBuildCommand": "npm.cmd run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "./dist"
+  },
+  "app": {
+    "windows": [{"title": "NEFViewer", "width": 1440, "height": 920, "minWidth": 900, "minHeight": 600}],
+    "security": {"csp": "default-src 'self'; worker-src 'self'; img-src 'self' blob: data: http://nef.localhost nef:; connect-src 'self' ipc: http://ipc.localhost http://nef.localhost nef:; style-src 'self' 'unsafe-inline'"}
+  },
+  "bundle": {"active": false}
+}
