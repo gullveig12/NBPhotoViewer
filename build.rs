@@ -79,7 +79,7 @@ fn main() {
     build.file("native/jpeg.cpp");
     build.file("native/webp.cpp");
     sources(&root.join("src"), &mut build);
-    build.compile("nefraw");
+    build.compile("nbphotoraw");
     println!("cargo:rerun-if-changed=native/bridge.cpp");
     println!("cargo:rerun-if-changed=native/jpeg.cpp");
     println!("cargo:rerun-if-changed=native/webp.cpp");

@@ -3,8 +3,10 @@ pub mod export;
 pub mod formats;
 pub mod raw;
 mod thumbnail_work;
+mod storage;
+pub use storage::data_dir;
 use engine::{Collection, DeleteReport, Engine};
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 #[tauri::command]
 fn supported_formats() -> serde_json::Value {
@@ -48,14 +50,6 @@ async fn trash_photos(
     tauri::async_runtime::spawn_blocking(move || engine.delete_many(ids))
         .await
         .map_err(|e| e.to_string())?
-}
-pub fn data_dir() -> PathBuf {
-    std::env::var_os("NEFVIEWER_DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_else(|| ".".into()))
-                .join("NEFViewer")
-        })
 }
 #[tauri::command]
 async fn copy_photo(
@@ -167,7 +161,8 @@ fn cancel_export(job_id: String, jobs: tauri::State<'_, Arc<export::ExportJobs>>
     jobs.cancel(&job_id);
 }
 pub fn run() {
-    let engine = Engine::new(data_dir()).expect("无法打开本地缓存");
+    let data = data_dir().expect("无法准备本地照片标记，请保留旧版数据目录后重试");
+    let engine = Engine::new(data.clone()).expect("无法打开本地缓存");
     let media_engine = engine.clone();
     let mut context = tauri::generate_context!();
     let window_config = context.config().app.windows[0].clone();
@@ -176,7 +171,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(engine)
         .manage(Arc::new(export::ExportJobs::default()))
-        .register_asynchronous_uri_scheme_protocol("nef", move |_ctx, request, responder| {
+        .register_asynchronous_uri_scheme_protocol("nbphoto", move |_ctx, request, responder| {
             let engine = media_engine.clone();
             let path = request.uri().path().to_string();
             let origin = request
@@ -222,7 +217,7 @@ pub fn run() {
         ])
         .setup(move |app| {
             tauri::WebviewWindowBuilder::from_config(app, &window_config)?
-                .data_directory(data_dir().join("webview"))
+                .data_directory(data.join("webview"))
                 .build()?;
             Ok(())
         })

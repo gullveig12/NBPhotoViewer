@@ -1,15 +1,19 @@
 [package]
-name = "nef-viewer"
-version = "0.5.5"
+name = "nbphoto-viewer"
+version = "1.0.0"
 edition = "2024"
-default-run = "nef-viewer"
+default-run = "NBPhotoViewer"
+
+[[bin]]
+name = "NBPhotoViewer"
+path = "src/main.rs"
 
 [features]
 default = []
 custom-protocol = ["tauri/custom-protocol"]
 
 [lib]
-name = "nef_viewer"
+name = "nbphoto_viewer"
 crate-type = ["rlib"]
 
 [build-dependencies]
@@ -25,7 +29,7 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 kamadak-exif = "0.6"
 jpeg-decoder = { version = "0.3.2", default-features = false }
 chrono = "0.4"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 trash = "5"
 tiny_http = "0.12"
 crc32fast = "1.5"

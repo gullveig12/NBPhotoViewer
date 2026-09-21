@@ -1,6 +1,6 @@
 {
-  "name": "nef-viewer",
-  "version": "0.5.5",
+  "name": "nbphoto-viewer",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {

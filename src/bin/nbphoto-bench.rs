@@ -1,4 +1,4 @@
-use nef_viewer::{
+use nbphoto_viewer::{
     engine::{Engine, resource},
     formats, raw,
 };
@@ -7,7 +7,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         eprintln!(
-            "nef-bench inspect <file> | bench <folder> | serve <folder> [port] | export <folder> <output-directory> [zip-limit]"
+            "nbphoto-bench inspect <file> | bench <folder> | serve <folder> [port] | export <folder> <output-directory> [zip-limit]"
         );
         return;
     }
@@ -29,7 +29,7 @@ fn main() {
         };
         return;
     }
-    let data = std::env::var_os("NEFVIEWER_DATA_DIR")
+    let data = std::env::var_os("NBPHOTOVIEWER_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".qa/data"));
     let engine = Engine::new(data).unwrap();
@@ -39,8 +39,8 @@ fn main() {
         let limit = args
             .get(4)
             .map(|v| v.parse().unwrap())
-            .unwrap_or(nef_viewer::export::ZIP_LIMIT);
-        let report = nef_viewer::export::batch(
+            .unwrap_or(nbphoto_viewer::export::ZIP_LIMIT);
+        let report = nbphoto_viewer::export::batch(
             &engine,
             collection.photos.iter().map(|p| p.id.clone()).collect(),
             &output,
@@ -52,7 +52,7 @@ fn main() {
         return;
     }
     if args[1] == "serve" {
-        let trace_requests = std::env::var_os("NEFVIEWER_TRACE_REQUESTS").is_some();
+        let trace_requests = std::env::var_os("NBPHOTOVIEWER_TRACE_REQUESTS").is_some();
         let port = args.get(3).map(String::as_str).unwrap_or("1421");
         let server = tiny_http::Server::http(format!("127.0.0.1:{port}")).unwrap();
         println!(

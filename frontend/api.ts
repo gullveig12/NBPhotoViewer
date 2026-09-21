@@ -5,12 +5,12 @@ export const desktop = '__TAURI_INTERNALS__' in window;
 export const qa = !desktop && new URLSearchParams(location.search).has('qa');
 export const demo = qa && new URLSearchParams(location.search).has('demo');
 const fixture=()=>import('./qa-fixture');
-const base=desktop?'http://nef.localhost':'http://127.0.0.1:1421';
+const base=desktop?'http://nbphoto.localhost':'http://127.0.0.1:1421';
 export const imageUrl=(id:string,kind:string)=>`${base}/image/${id}/${kind}`;
 async function json<T>(path:string):Promise<T>{const r=await fetch(base+path);if(!r.ok)throw Error(await r.text());return r.json()}
 export const metadata=(id:string)=>json<Metadata>(`/metadata/${id}`);
 export async function choose(folder:boolean):Promise<Collection|null>{
-  if(!desktop){if(qa){const source=await json<Collection>('/collection');return demo?(await fixture()).choose(source):source}throw Error('请在 NEFViewer 桌面窗口中选择本地文件。')}
+  if(!desktop){if(qa){const source=await json<Collection>('/collection');return demo?(await fixture()).choose(source):source}throw Error('请在 NBPhotoViewer 桌面窗口中选择本地文件。')}
   const formats=await invoke<{images:string[];raw:string[]}>('supported_formats');
   const paths=await open({directory:folder,multiple:!folder,title:folder?'选择照片文件夹':'选择照片',filters:folder?undefined:[{name:'所有支持的照片',extensions:[...formats.images,...formats.raw]},{name:'常见图片',extensions:formats.images},{name:'相机 RAW',extensions:formats.raw}]});
   if(!paths)return null;
