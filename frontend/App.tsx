@@ -181,7 +181,8 @@ export default function App(){
    <span className="divider"/><span className="batch-scope" title="单击追加或取消；按住拖动连选，松开确认，Esc 取消；Shift 连选；Ctrl 追加或取消">范围：本次全部照片</span><div className="toolbar-spacer"/>
    <span className="batch-count" role="status" aria-live="polite">已选 {chosenPhotos.length} 张</span>
    <div className="batch-actions" role="group" aria-label="所选照片操作">
-    <button disabled={busy||deleting||!chosenPhotos.length} onClick={()=>void startExport('zip',chosenPhotos.slice())}>导出（{chosenPhotos.length}）</button>
+    <button disabled={busy||deleting||!chosenPhotos.length} onClick={()=>void startExport('jpeg',chosenPhotos.slice())}>导出（{chosenPhotos.length}）</button>
+    <button disabled={busy||deleting||!chosenPhotos.length} onClick={()=>void startExport('zip',chosenPhotos.slice())}>导出并压缩（{chosenPhotos.length}）</button>
     <button className="primary" disabled={busy||deleting||!chosenPhotos.length} onClick={askDelete}>删除（{chosenPhotos.length}）</button>
    </div>
   </div>}

@@ -3,7 +3,7 @@ use exif::{Field, In, Tag, Value};
 use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageReader};
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{Cursor, Write},
     path::{Path, PathBuf},
@@ -12,6 +12,14 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+
+#[cfg(test)]
+#[path = "export_jpegs_tests.rs"]
+mod jpegs_tests;
+
+#[cfg(test)]
+#[path = "export_zip_tests.rs"]
+mod zip_tests;
 
 pub const ZIP_LIMIT: u64 = 1_000_000_000;
 #[derive(Clone, Serialize)]
@@ -74,6 +82,71 @@ impl Drop for Job<'_> {
         if let Ok(mut active) = self.owner.active.lock() {
             *active = None;
         }
+    }
+}
+
+/// Process-local names and counters. No settings or photo database are written.
+#[derive(Default)]
+pub struct ZipSession {
+    names: Mutex<ZipNames>,
+}
+#[derive(Default)]
+struct ZipNames {
+    last_path: Option<String>,
+    next_numbers: HashMap<String, usize>,
+}
+struct ZipDestination {
+    directory: PathBuf,
+    prefix: String,
+}
+impl ZipSession {
+    pub fn default_path(&self) -> Result<String, String> {
+        let names = self.names.lock().map_err(|e| e.to_string())?;
+        Ok(names
+            .last_path
+            .clone()
+            .unwrap_or_else(|| "照片导出.zip".into()))
+    }
+    fn prepare(&self, path: &Path) -> Result<ZipDestination, String> {
+        let directory = path
+            .parent()
+            .filter(|p| p.is_dir())
+            .ok_or("导出目录无效。")?;
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or("导出名称无效。")?;
+        // Only remove .zip; dots elsewhere are part of the user's prefix.
+        let prefix = if filename.to_ascii_lowercase().ends_with(".zip") {
+            &filename[..filename.len() - 4]
+        } else {
+            filename
+        };
+        if prefix.trim_matches([' ', '.']).is_empty() {
+            return Err("请输入 ZIP 名称。".into());
+        }
+        let prefix = safe_stem(prefix);
+        self.names.lock().map_err(|e| e.to_string())?.last_path = Some(
+            directory
+                .join(format!("{prefix}.zip"))
+                .to_string_lossy()
+                .into_owned(),
+        );
+        Ok(ZipDestination {
+            directory: directory.to_owned(),
+            prefix,
+        })
+    }
+    fn next_part(&self, target: &ZipDestination) -> Result<ZipPart, String> {
+        let mut names = self.names.lock().map_err(|e| e.to_string())?;
+        // The same prefix continues across destination folders and name changes.
+        let next = names
+            .next_numbers
+            .entry(target.prefix.to_lowercase())
+            .or_insert(1);
+        let part = ZipPart::new(&target.directory, &target.prefix, *next)?;
+        *next = part.number.checked_add(1).ok_or("ZIP 编号超出范围。")?;
+        Ok(part)
     }
 }
 
@@ -238,6 +311,9 @@ fn stem(name: &str) -> String {
         .file_stem()
         .unwrap_or_default()
         .to_string_lossy();
+    safe_stem(&original)
+}
+fn safe_stem(original: &str) -> String {
     let mut name: String = original
         .chars()
         .take(160)
@@ -326,6 +402,7 @@ struct ZipPart {
     position: u64,
     central: u64,
     committed: bool,
+    number: usize,
 }
 fn u16le(w: &mut impl Write, n: u16) -> std::io::Result<()> {
     w.write_all(&n.to_le_bytes())
@@ -336,12 +413,8 @@ fn u32le(w: &mut impl Write, n: u32) -> std::io::Result<()> {
 impl ZipPart {
     fn new(directory: &Path, prefix: &str, part: usize) -> Result<Self, String> {
         for retry in 0..10000 {
-            let extra = if retry == 0 {
-                String::new()
-            } else {
-                format!("_{retry}")
-            };
-            let output = directory.join(format!("{prefix}{extra}-{part:03}.zip"));
+            let number = part.checked_add(retry).ok_or("ZIP 编号超出范围。")?;
+            let output = directory.join(format!("{prefix}-{number:03}.zip"));
             let temp = output.with_extension("zip.part");
             if output.exists() {
                 continue;
@@ -356,6 +429,7 @@ impl ZipPart {
                         position: 0,
                         central: 0,
                         committed: false,
+                        number,
                     });
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -429,13 +503,37 @@ impl ZipPart {
         })();
         result.map_err(|e| e.to_string())?;
         drop(self.file.take());
-        fs::rename(&self.temp, &self.output).map_err(|e| e.to_string())?;
+        publish_zip(&self.temp, &self.output).map_err(|e| e.to_string())?;
         self.committed = true;
         Ok((
             self.output.to_string_lossy().into_owned(),
             self.entries.len(),
         ))
     }
+}
+
+// MoveFileW fails if the target already exists, even if it appeared after the
+// temporary file was reserved. Unlike rename(), it never replaces an output.
+#[cfg(windows)]
+fn publish_zip(temp: &Path, output: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileW(existing: *const u16, new: *const u16) -> i32;
+    }
+    let temp: Vec<_> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let output: Vec<_> = output.as_os_str().encode_wide().chain(Some(0)).collect();
+    if unsafe { MoveFileW(temp.as_ptr(), output.as_ptr()) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+#[cfg(not(windows))]
+fn publish_zip(temp: &Path, output: &Path) -> std::io::Result<()> {
+    fs::hard_link(temp, output)?;
+    let _ = fs::remove_file(temp);
+    Ok(())
 }
 impl Drop for ZipPart {
     fn drop(&mut self) {
@@ -446,10 +544,112 @@ impl Drop for ZipPart {
     }
 }
 
+/// Export standalone JPEG files, keeping the same conversion and no-overwrite
+/// behavior as individual saves. Only one image is decoded at a time.
+pub fn batch_jpegs(
+    engine: &Engine,
+    ids: Vec<String>,
+    directory: &Path,
+    cancel: &AtomicBool,
+    progress: impl Fn(ExportProgress),
+) -> ExportReport {
+    let mut seen = HashSet::new();
+    let ids: Vec<_> = ids
+        .into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect();
+    let mut report = ExportReport {
+        total: ids.len(),
+        ..Default::default()
+    };
+    if !directory.is_dir() {
+        report.fatal = Some("导出目录无效。".into());
+        return report;
+    }
+    let names = engine
+        .collection
+        .read()
+        .unwrap()
+        .photos
+        .iter()
+        .map(|p| (p.id.clone(), p.name.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    for (index, id) in ids.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            report.cancelled = true;
+            break;
+        }
+        let name = names.get(id).cloned().unwrap_or_else(|| id.clone());
+        progress(ExportProgress {
+            completed: index,
+            total: ids.len(),
+            name: name.clone(),
+            phase: "正在转换 JPEG".into(),
+        });
+        let encoded = engine.export_source(id).and_then(|path| jpeg(&path, false));
+        if cancel.load(Ordering::Relaxed) {
+            report.cancelled = true;
+            break;
+        }
+        match encoded {
+            Ok(encoded) => {
+                progress(ExportProgress {
+                    completed: index,
+                    total: ids.len(),
+                    name: name.clone(),
+                    phase: "正在保存 JPEG".into(),
+                });
+                match save_jpeg(&directory.join(&name), &encoded.bytes) {
+                    Ok(path) => {
+                        report.exported += 1;
+                        report.files.push(path.to_string_lossy().into_owned());
+                        if let Some(message) = encoded.warning {
+                            report.warnings.push(ExportIssue { name, message });
+                        }
+                    }
+                    Err(message) => report.failed.push(ExportIssue { name, message }),
+                }
+            }
+            Err(message) => report.failed.push(ExportIssue { name, message }),
+        }
+        progress(ExportProgress {
+            completed: index + 1,
+            total: ids.len(),
+            name: String::new(),
+            phase: "正在导出".into(),
+        });
+    }
+    report
+}
+
 pub fn batch(
     engine: &Engine,
     ids: Vec<String>,
     directory: &Path,
+    cancel: &AtomicBool,
+    progress: impl Fn(ExportProgress),
+    limit: u64,
+) -> ExportReport {
+    let path = directory.join(format!(
+        "照片导出-{}.zip",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    ));
+    batch_named(
+        engine,
+        ids,
+        &path,
+        &ZipSession::default(),
+        cancel,
+        progress,
+        limit,
+    )
+}
+
+pub fn batch_named(
+    engine: &Engine,
+    ids: Vec<String>,
+    destination: &Path,
+    session: &ZipSession,
     cancel: &AtomicBool,
     progress: impl Fn(ExportProgress),
     limit: u64,
@@ -463,11 +663,17 @@ pub fn batch(
         total: ids.len(),
         ..Default::default()
     };
-    if !directory.is_dir() || !(128..=ZIP_LIMIT).contains(&limit) {
+    if !(128..=ZIP_LIMIT).contains(&limit) {
         report.fatal = Some("导出目录或大小限制无效。".into());
         return report;
     }
-    let prefix = format!("照片导出-{}", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+    let target = match session.prepare(destination) {
+        Ok(target) => target,
+        Err(error) => {
+            report.fatal = Some(error);
+            return report;
+        }
+    };
     let names = engine
         .collection
         .read()
@@ -526,7 +732,7 @@ pub fn batch(
             }
         }
         if part.is_none() {
-            match ZipPart::new(directory, &prefix, report.files.len() + 1) {
+            match session.next_part(&target) {
                 Ok(p) => part = Some(p),
                 Err(e) => {
                     report.fatal = Some(e);

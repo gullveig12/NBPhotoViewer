@@ -7,7 +7,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         eprintln!(
-            "nbphoto-bench inspect <file> | bench <folder> | serve <folder> [port] | export <folder> <output-directory> [zip-limit]"
+            "nbphoto-bench inspect <file> | bench <folder> | serve <folder> [port] | export <folder> <output-directory> [zip-limit] | export-jpegs <folder> <output-directory>"
         );
         return;
     }
@@ -34,6 +34,18 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from(".qa/data"));
     let engine = Engine::new(data).unwrap();
     let collection = engine.select(vec![args[2].clone()]).unwrap();
+    if args[1] == "export-jpegs" {
+        let output = PathBuf::from(args.get(3).expect("output directory is required"));
+        let report = nbphoto_viewer::export::batch_jpegs(
+            &engine,
+            collection.photos.iter().map(|p| p.id.clone()).collect(),
+            &output,
+            &std::sync::atomic::AtomicBool::new(false),
+            |p| eprintln!("{} / {} {} {}", p.completed, p.total, p.phase, p.name),
+        );
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        return;
+    }
     if args[1] == "export" {
         let output = PathBuf::from(args.get(3).expect("output directory is required"));
         let limit = args

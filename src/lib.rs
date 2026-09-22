@@ -126,7 +126,45 @@ async fn save_photo_jpeg(
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
+fn zip_export_default(session: tauri::State<'_, Arc<export::ZipSession>>) -> Result<String, String> {
+    session.default_path()
+}
+#[tauri::command]
 async fn export_zip(
+    ids: Vec<String>,
+    path: String,
+    job_id: String,
+    on_progress: tauri::ipc::Channel<export::ExportProgress>,
+    state: tauri::State<'_, Arc<Engine>>,
+    jobs: tauri::State<'_, Arc<export::ExportJobs>>,
+    session: tauri::State<'_, Arc<export::ZipSession>>,
+) -> Result<export::ExportReport, String> {
+    let engine = state.inner().clone();
+    let jobs = jobs.inner().clone();
+    let session = session.inner().clone();
+    // Register before dispatch so an immediate cancellation cannot be lost.
+    let job = jobs.start(job_id)?;
+    let cancel = job.cancel.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        export::batch_named(
+            &engine,
+            ids,
+            std::path::Path::new(&path),
+            &session,
+            &cancel,
+            |p| {
+                let _ = on_progress.send(p);
+            },
+            export::ZIP_LIMIT,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string());
+    drop(job);
+    result
+}
+#[tauri::command]
+async fn export_jpegs(
     ids: Vec<String>,
     directory: String,
     job_id: String,
@@ -136,19 +174,15 @@ async fn export_zip(
 ) -> Result<export::ExportReport, String> {
     let engine = state.inner().clone();
     let jobs = jobs.inner().clone();
-    // Register before dispatch so an immediate cancellation cannot be lost.
     let job = jobs.start(job_id)?;
     let cancel = job.cancel.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        export::batch(
+        export::batch_jpegs(
             &engine,
             ids,
             std::path::Path::new(&directory),
             &cancel,
-            |p| {
-                let _ = on_progress.send(p);
-            },
-            export::ZIP_LIMIT,
+            |p| { let _ = on_progress.send(p); },
         )
     })
     .await
@@ -171,6 +205,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(engine)
         .manage(Arc::new(export::ExportJobs::default()))
+        .manage(Arc::new(export::ZipSession::default()))
         .register_asynchronous_uri_scheme_protocol("nbphoto", move |_ctx, request, responder| {
             let engine = media_engine.clone();
             let path = request.uri().path().to_string();
@@ -213,6 +248,8 @@ pub fn run() {
             copy_photo,
             save_photo_jpeg,
             export_zip,
+            zip_export_default,
+            export_jpegs,
             cancel_export
         ])
         .setup(move |app| {

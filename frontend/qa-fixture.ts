@@ -38,8 +38,9 @@ export async function exportDemo(action:ExportAction,photos:Photo[],id:string,pr
   await new Promise(resolve=>setTimeout(resolve,450));
   if(cancelledJobs.has(id)){report.cancelled=true;break}
   report.exported++;
+  if(action==='jpeg')report.files.push(`演示导出/${photo.name.replace(/\.[^.]+$/, '')}.jpg`);
  }
  cancelledJobs.delete(id);
- if(report.exported&&action!=='copy')report.files=[action==='zip'?'演示：照片导出-001.zip':'演示：照片.jpg'];
+ if(report.exported&&(action==='zip'||action==='save'))report.files=[action==='zip'?'演示：照片导出-001.zip':'演示：照片.jpg'];
  return report;
 }
