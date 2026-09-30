@@ -5,3 +5,5 @@
 /.qa/
 *.log
 /tests
+/.idea/
+*.iml
